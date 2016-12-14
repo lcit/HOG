@@ -63,22 +63,25 @@ void HOG::L2hys(HOG::THist& v) {
 
 HOG::HOG(const size_t blocksize, std::function<void(HOG::THist&)> block_norm)
     : _blocksize(blocksize), _cellsize(blocksize / 2), _stride(blocksize / 2),
-      _binning(9), _bin_width(360 / _binning), _block_norm(block_norm) {}
+      _binning(9), _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {}
 HOG::HOG(const size_t blocksize, size_t cellsize,
          std::function<void(HOG::THist&)> block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(blocksize / 2), _binning(9),
-      _bin_width(360 / _binning), _block_norm(block_norm) {}
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {}
 HOG::HOG(const size_t blocksize, size_t cellsize, size_t stride,
          std::function<void(HOG::THist&)> block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(9),
-      _bin_width(360 / _binning), _block_norm(block_norm) {}
-HOG::HOG(const size_t blocksize, size_t cellsize, size_t stride, size_t binning,
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {}
+HOG::HOG(const size_t blocksize, size_t cellsize, size_t stride, size_t binning, size_t grad_type,
          std::function<void(HOG::THist&)> block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(binning),
-      _bin_width(360 / _binning), _block_norm(block_norm) {}
+      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(block_norm) {}
 HOG::~HOG() {}
 
 HOG::THist HOG::convert(const cv::Mat& img) {
+    // cleanup
+    clear_internals();
+    
     // makes sure the image is normalized
     cv::normalize(img, norm, 0.0, 255.0, cv::NORM_MINMAX, CV_32F);
 
@@ -128,15 +131,26 @@ HOG::THist HOG::process_block(const cv::Mat& block_mag, const cv::Mat& block_ori
 
 HOG::THist HOG::process_cell(const cv::Mat& cell_mag, const cv::Mat& cell_ori) {
     HOG::THist cell_hist(_binning);
-
-    for (size_t i = 0; i < cell_mag.rows; ++i) {
-        for (size_t j = 0; j < cell_mag.cols; ++j) {
+    if(_grad_type == GRADIENT_SIGNED) {
+        for (size_t i = 0; i < cell_mag.rows; ++i) {
             const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
             const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
-            cell_hist[static_cast<int>(ptr_row_ori[j] / _bin_width)] += ptr_row_mag[j];
+            for (size_t j = 0; j < cell_mag.cols; ++j) {
+                cell_hist[static_cast<int>(ptr_row_ori[j] / _bin_width)] += ptr_row_mag[j];
+            }
+        }
+    } else {
+        for (size_t i = 0; i < cell_mag.rows; ++i) {
+            const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
+            const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
+            for (size_t j = 0; j < cell_mag.cols; ++j) {
+                HOG::TType orientation = ptr_row_ori[j];
+                if(orientation > 180)
+                    orientation -= 180;
+                cell_hist[static_cast<int>(orientation / _bin_width)] += ptr_row_mag[j];
+            }
         }
     }
-
     return cell_hist;
 }
 
@@ -191,10 +205,19 @@ cv::Mat HOG::get_vector_mask() {
 
                         if (length > 0 && !isinf(length)) {
                             // draw "arrows" of varing length
-                            cv::line(vector_mask, cv::Point(x + j + _cellsize / 2, y + i + _cellsize / 2),
+                            if(_grad_type == GRADIENT_SIGNED) {
+                                cv::line(vector_mask, cv::Point(x + j + _cellsize / 2, y + i + _cellsize / 2),
                                      cv::Point(  x + j + _cellsize / 2 + cos((k * _bin_width) * 3.1415 / 180)*length,
                                                  y + i + _cellsize / 2 + sin((k * _bin_width) * 3.1415 / 180)*length),
                                      cv::Scalar(color_magnitude, color_magnitude, color_magnitude), thickness);
+                            } else {
+                                cv::line(vector_mask, 
+                                    cv::Point(  x + j + _cellsize / 2 + cos((k * _bin_width+180) * 3.1415 / 180)*length,
+                                                 y + i + _cellsize / 2 + sin((k * _bin_width+180) * 3.1415 / 180)*length),
+                                     cv::Point(  x + j + _cellsize / 2 + cos((k * _bin_width) * 3.1415 / 180)*length,
+                                                 y + i + _cellsize / 2 + sin((k * _bin_width) * 3.1415 / 180)*length),
+                                     cv::Scalar(color_magnitude, color_magnitude, color_magnitude), thickness);
+                            }
                         }
                     }
 
@@ -221,4 +244,11 @@ cv::Mat HOG::get_vector_mask() {
     }
 
     return vector_mask;
+}
+
+void HOG::clear_internals() {
+    img_hist.clear();
+    for(auto& h:_all_hists) 
+        h.clear();
+    _all_hists.clear();
 }

@@ -22,7 +22,9 @@ class HOG {
 public:
     using TType = float;
     using THist = std::vector<TType>;
-
+    
+    static const size_t GRADIENT_SIGNED = 360; 
+    static const size_t GRADIENT_UNSIGNED = 180; 
     static constexpr TType epsilon = 1e-6;
 
     // see: https://en.wikipedia.org/wiki/Histogram_of_oriented_gradients#Block_normalization
@@ -35,6 +37,7 @@ private:
     const size_t _blocksize;
     const size_t _cellsize;
     const size_t _stride;
+    const size_t _grad_type; ///< "signed" (0..360) or "unsigned" (0..180) gradient
     const size_t _binning; ///< the number of bins for each cell-histogram
     const size_t _bin_width; ///< size of one bin in degree
     const std::function<void(THist&)> _block_norm;  ///< function that normalize the block histogram
@@ -52,8 +55,8 @@ public:
         std::function<void(THist&)> block_norm = L2hys);
     HOG(const size_t blocksize, size_t cellsize, size_t stride,
         std::function<void(THist&)> block_norm = L2hys);
-    HOG(const size_t blocksize, size_t cellsize, size_t stride, size_t binning = 9,
-        std::function<void(THist&)> block_norm = L2hys);
+    HOG(const size_t blocksize, size_t cellsize, size_t stride, size_t binning = 9, 
+        size_t grad_type = GRADIENT_UNSIGNED, std::function<void(THist&)> block_norm = L2hys);
     ~HOG();
 
     /// Retrieves the HOG from an image
@@ -84,6 +87,12 @@ private:
     /// @param cell_ori: a portion of a block (cell) of the orientation matrix
     /// @return the cell histogram as std::vector
     THist process_cell(const cv::Mat& cell_mag, const cv::Mat& cell_ori);
+    
+    /// Clear internal/local data
+    ///
+    /// @param none
+    /// @return none
+    void clear_internals();
 
 public:
     /// Utility funtion to retreve the magnitude matrix

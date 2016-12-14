@@ -49,7 +49,7 @@ int main(int argc, char* argv[]) {
     size_t cellsize = atoi(argv[3]);
     size_t stride = atoi(argv[4]);
     size_t binning = atoi(argv[5]);
-    HOG hog(blocksize, cellsize, stride, binning);
+    HOG hog(blocksize, cellsize, stride, binning, HOG::GRADIENT_UNSIGNED);
     auto hist = hog.convert(image);
 
     // print the resulting histogram
