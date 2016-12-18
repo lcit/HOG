@@ -15,10 +15,11 @@
 #include <iostream>
 #include <algorithm>
 #include <memory>
+#include <vector>
 #include <functional>
 #include <math.h>
 
-class HOG {
+class HOG {   
 public:
     using TType = float;
     using THist = std::vector<TType>;
@@ -32,6 +33,7 @@ public:
     static void L1sqrt(THist& v);
     static void L2norm(THist& v);
     static void L2hys(THist& v);
+    static void none(THist& v);
 
 private:
     const size_t _blocksize;
@@ -40,6 +42,11 @@ private:
     const size_t _grad_type; ///< "signed" (0..360) or "unsigned" (0..180) gradient
     const size_t _binning; ///< the number of bins for each cell-histogram
     const size_t _bin_width; ///< size of one bin in degree
+    const size_t _n_cells_per_block_y = _blocksize/_cellsize;
+    const size_t _n_cells_per_block_x = _n_cells_per_block_y;
+    const size_t _n_cells_per_block = _n_cells_per_block_y*_n_cells_per_block_x;
+    const size_t _stride_unit = _stride/_cellsize;
+    const unsigned _n_threads;
     const std::function<void(THist&)> _block_norm;  ///< function that normalize the block histogram
     const cv::Mat _kernelx = (cv::Mat_<char>(1, 3) << -1, 0, 1); ///< derivive kernel
     const cv::Mat _kernely = (cv::Mat_<char>(3, 1) << -1, 0, 1); ///< derivive kernel
@@ -48,22 +55,27 @@ private:
     THist img_hist;
     std::vector<THist> _all_hists;
 
+    std::vector<std::vector<THist>> _cell_hists;
+    
+
 public:
     HOG(const size_t blocksize,
-        std::function<void(THist&)> block_norm = L2hys);
+        std::function<void(THist&)> block_norm = L2hys, const unsigned n_threads = 1);
     HOG(const size_t blocksize, size_t cellsize,
-        std::function<void(THist&)> block_norm = L2hys);
+        std::function<void(THist&)> block_norm = L2hys, const unsigned n_threads = 1);
     HOG(const size_t blocksize, size_t cellsize, size_t stride,
-        std::function<void(THist&)> block_norm = L2hys);
+        std::function<void(THist&)> block_norm = L2hys, const unsigned n_threads = 1);
     HOG(const size_t blocksize, size_t cellsize, size_t stride, size_t binning = 9, 
-        size_t grad_type = GRADIENT_UNSIGNED, std::function<void(THist&)> block_norm = L2hys);
+        size_t grad_type = GRADIENT_UNSIGNED, std::function<void(THist&)> block_norm = L2hys, const unsigned n_threads = 1);
     ~HOG();
 
     /// Retrieves the HOG from an image
     ///
     /// @param img: source image (any size)
     /// @return the HOG histogram as std::vector
-    THist convert(const cv::Mat& img);
+    void process(const cv::Mat& img);
+    
+    THist retrieve(const cv::Rect& rect);
 
 private:
     /// Retrieves magnitude and orientation form an image
@@ -72,7 +84,7 @@ private:
     /// @param mag: ref. to the magnitude matrix where to store the result
     /// @param pri: ref. to the orientation matrix where to store the result
     /// @return none
-    void magnitude_and_orientation(const cv::Mat& img, cv::Mat& mag, cv::Mat& ori);
+    void magnitude_and_orientation(const cv::Mat& img);
 
     /// Iterates over a block and concatenates the cell histograms
     ///

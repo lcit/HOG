@@ -50,8 +50,9 @@ int main(int argc, char* argv[]) {
     size_t stride = atoi(argv[4]);
     size_t binning = atoi(argv[5]);
     HOG hog(blocksize, cellsize, stride, binning, HOG::GRADIENT_UNSIGNED);
-    auto hist = hog.convert(image);
-
+    hog.process(image);
+    auto hist = hog.retrieve(cv::Rect(0,0,image.cols, image.rows));
+    
     // print the resulting histogram
     std::cout << "Histogram size: " << hist.size() << "\n";
 
@@ -59,12 +60,14 @@ int main(int argc, char* argv[]) {
         std::cout << h << ",";
 
     std::cout << "\n";
-
+    /*
     // display some usefull images
     display_superimposed(image, hog.get_vector_mask(), "vector_mask");
     display_superimposed(custom_normalization(hog.get_magnitudes()), hog.get_vector_mask(), "magnitude");
     display_superimposed(custom_normalization(hog.get_orientations()), hog.get_vector_mask(), "orientation");
-
+    */
+    
+    
     cv::waitKey();
 
     return 0;

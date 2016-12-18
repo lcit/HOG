@@ -16,6 +16,7 @@
 #include <iostream>
 #include <algorithm>
 #include <memory>
+#include <vector>
 #include <functional>
 #include <math.h>
 
@@ -61,24 +62,28 @@ void HOG::L2hys(HOG::THist& v) {
     HOG::L2norm(v);
 }
 
-HOG::HOG(const size_t blocksize, std::function<void(HOG::THist&)> block_norm)
+void HOG::none(HOG::THist& v) {}
+
+HOG::HOG(const size_t blocksize, std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
     : _blocksize(blocksize), _cellsize(blocksize / 2), _stride(blocksize / 2),
-      _binning(9), _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {}
+      _binning(9), _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), 
+      _block_norm(block_norm), _n_threads(n_threads) {}
 HOG::HOG(const size_t blocksize, size_t cellsize,
-         std::function<void(HOG::THist&)> block_norm)
+         std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(blocksize / 2), _binning(9),
-      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {}
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {}
 HOG::HOG(const size_t blocksize, size_t cellsize, size_t stride,
-         std::function<void(HOG::THist&)> block_norm)
+         std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(9),
-      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {}
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {}
 HOG::HOG(const size_t blocksize, size_t cellsize, size_t stride, size_t binning, size_t grad_type,
-         std::function<void(HOG::THist&)> block_norm)
+         std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(binning),
-      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(block_norm) {}
+      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {}
 HOG::~HOG() {}
 
-HOG::THist HOG::convert(const cv::Mat& img) {
+void HOG::process(const cv::Mat& img) {
+    
     // cleanup
     clear_internals();
     
@@ -86,23 +91,67 @@ HOG::THist HOG::convert(const cv::Mat& img) {
     cv::normalize(img, norm, 0.0, 255.0, cv::NORM_MINMAX, CV_32F);
 
     // extracts the magnitude and orientations images
-    magnitude_and_orientation(img, mag, ori);
-
+    magnitude_and_orientation(img);
+    
     // iterates over all blocks and cells
-    for (size_t y = 0; y <= mag.rows - _blocksize; y += _stride) {
-        for (size_t x = 0; x <= mag.cols - _blocksize; x += _stride) {
-            cv::Rect block_rect = cv::Rect(x, y, _blocksize, _blocksize);
-            THist block_hist = process_block(cv::Mat(mag, block_rect), cv::Mat(ori, block_rect));
-
-            // concatenate all the blocks histograms
-            img_hist.insert(std::end(img_hist), std::begin(block_hist), std::end(block_hist));
+    #pragma omp parallel num_threads(_n_threads)
+    {
+        size_t n_cells_y = static_cast<int>(mag.rows/_cellsize);
+        size_t n_cells_x = static_cast<int>(mag.cols/_cellsize);
+        
+        //std::cout << "n_cells_y=" << n_cells_y << ", n_cells_x=" << n_cells_x << "\n";
+        
+        _cell_hists.resize(n_cells_y);
+        
+        #pragma omp for
+        for (size_t i = 0; i < n_cells_y; ++i)
+            _cell_hists[i].resize(n_cells_x);
+        
+        #pragma omp for collapse(2)
+        for (size_t i = 0; i < n_cells_y; ++i) {
+            for (size_t j = 0; j < n_cells_x; ++j) {
+                cv::Rect cell_rect = cv::Rect(j*_cellsize, i*_cellsize, _cellsize, _cellsize);
+                HOG::THist cell_hist = process_cell(cv::Mat(mag, cell_rect), cv::Mat(ori, cell_rect));
+                _cell_hists[i][j] = cell_hist;
+            }
         }
+        
     }
-
-    return img_hist;
 }
 
-void HOG::magnitude_and_orientation(const cv::Mat& img, cv::Mat& mag, cv::Mat& ori) {
+HOG::THist HOG::retrieve(const cv::Rect& rect) {
+    size_t x = static_cast<int>(rect.x/_cellsize);
+    size_t y = static_cast<int>(rect.y/_cellsize);
+    size_t width = static_cast<int>(rect.width/_cellsize);
+    size_t height = static_cast<int>(rect.height/_cellsize);
+    /*
+    static_assert(y<_cell_hists.size(), "Error: Rect.y is greater than the image!");
+    static_assert(x<_cell_hists[0].size(), "Error: Rect.x is greater than the image!");
+    static_assert(width>=_n_cells_per_block_x, "Error: Rect.width is smaller than blocksize!");
+    static_assert(height>=_n_cells_per_block_y, "Error: Rect.height is smaller than blocksize!");
+    */
+    HOG::THist hog_hist;
+    for(size_t block_y=y; block_y<y+height-_n_cells_per_block_y; block_y += _stride_unit) {
+        for(size_t block_x=x; block_x<x+width-_n_cells_per_block_x; block_x += _stride_unit) {
+            HOG::THist block_hist;
+            //block_hist.resize(_n_cells_per_block*_binning);
+            for(size_t cell_y=block_y; cell_y<block_y+_n_cells_per_block_y; ++cell_y) {
+                for(size_t cell_x=block_x; cell_x<block_x+_n_cells_per_block_x; ++cell_x) {
+                    
+                    //std::cout << "block_y=" << block_y << ", block_x=" << block_x << ", cell_y=" << cell_y << ", cell_x=" << cell_x << "\n";
+                    
+                    THist cell_hist = _cell_hists[cell_y][cell_x];
+                    block_hist.insert(std::end(block_hist), std::begin(cell_hist), std::end(cell_hist));
+                }
+            }
+            _block_norm(block_hist);
+            hog_hist.insert(std::end(hog_hist), std::begin(block_hist), std::end(block_hist));
+        }
+    }
+    return hog_hist;
+}
+
+void HOG::magnitude_and_orientation(const cv::Mat& img) {
     cv::Mat Dx, Dy;
     cv::filter2D(img, Dx, CV_32F, _kernelx);
     cv::filter2D(img, Dy, CV_32F, _kernely);
@@ -124,8 +173,7 @@ HOG::THist HOG::process_block(const cv::Mat& block_mag, const cv::Mat& block_ori
         }
     }
 
-    _block_norm(block_hist_concat); // inplace normalization
-    _all_hists.push_back(block_hist_concat);
+    _block_norm(block_hist_concat); // inplace normalization (big source of delay!!)
     return block_hist_concat;
 }
 
@@ -251,4 +299,11 @@ void HOG::clear_internals() {
     for(auto& h:_all_hists) 
         h.clear();
     _all_hists.clear();
+    for(auto& h1:_cell_hists) {
+        for(auto& h2:h1) 
+            h2.clear();
+        h1.clear();
+    }
+    _cell_hists.clear();
+    
 }
