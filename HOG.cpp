@@ -94,28 +94,26 @@ void HOG::process(const cv::Mat& img) {
     magnitude_and_orientation(img);
     
     // iterates over all blocks and cells
-    #pragma omp parallel num_threads(_n_threads)
+    //#pragma omp parallel num_threads(_n_threads)
     {
-        size_t n_cells_y = static_cast<int>(mag.rows/_cellsize);
-        size_t n_cells_x = static_cast<int>(mag.cols/_cellsize);
+        _n_cells_y = static_cast<int>(mag.rows/_cellsize);
+        _n_cells_x = static_cast<int>(mag.cols/_cellsize);
         
-        //std::cout << "n_cells_y=" << n_cells_y << ", n_cells_x=" << n_cells_x << "\n";
+        //std::cout << "_n_cells_y=" << _n_cells_y << ", _n_cells_x=" << _n_cells_x << "\n";
         
-        _cell_hists.resize(n_cells_y);
+        _cell_hists.resize(_n_cells_y);
         
-        #pragma omp for
-        for (size_t i = 0; i < n_cells_y; ++i)
-            _cell_hists[i].resize(n_cells_x);
-        
-        #pragma omp for collapse(2)
-        for (size_t i = 0; i < n_cells_y; ++i) {
-            for (size_t j = 0; j < n_cells_x; ++j) {
+        // There might be a bug in openmp, we can't safely fill an std::vector with fixed size
+        // http://stackoverflow.com/questions/30815669/error-with-openmp-for-nested-for-loop
+        //#pragma omp for collapse(2) 
+        for (size_t i = 0; i < _n_cells_y; ++i) {
+            _cell_hists[i].resize(_n_cells_x);
+            for (size_t j = 0; j < _n_cells_x; ++j) {
                 cv::Rect cell_rect = cv::Rect(j*_cellsize, i*_cellsize, _cellsize, _cellsize);
                 HOG::THist cell_hist = process_cell(cv::Mat(mag, cell_rect), cv::Mat(ori, cell_rect));
                 _cell_hists[i][j] = cell_hist;
             }
         }
-        
     }
 }
 
@@ -159,43 +157,30 @@ void HOG::magnitude_and_orientation(const cv::Mat& img) {
     cv::phase(Dx, Dy, ori, true);
 }
 
-HOG::THist HOG::process_block(const cv::Mat& block_mag, const cv::Mat& block_ori) {
-    HOG::THist block_hist_concat;
-
-    for (size_t y = 0; y < block_mag.rows; y += _cellsize) {
-        for (size_t x = 0; x < block_mag.cols; x += _cellsize) {
-            //std::cout << "Cell x:" << x << ", y:" << y << "\n";
-            cv::Rect cell_rect = cv::Rect(x, y, _cellsize, _cellsize);
-            cv::Mat cell_mag = cv::Mat(block_mag, cell_rect);
-            cv::Mat cell_ori = cv::Mat(block_ori, cell_rect);
-            HOG::THist cell_hist = process_cell(cell_mag, cell_ori);
-            block_hist_concat.insert(std::end(block_hist_concat), std::begin(cell_hist), std::end(cell_hist));
-        }
-    }
-
-    _block_norm(block_hist_concat); // inplace normalization (big source of delay!!)
-    return block_hist_concat;
-}
-
 HOG::THist HOG::process_cell(const cv::Mat& cell_mag, const cv::Mat& cell_ori) {
     HOG::THist cell_hist(_binning);
-    if(_grad_type == GRADIENT_SIGNED) {
-        for (size_t i = 0; i < cell_mag.rows; ++i) {
-            const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
-            const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
-            for (size_t j = 0; j < cell_mag.cols; ++j) {
-                cell_hist[static_cast<int>(ptr_row_ori[j] / _bin_width)] += ptr_row_mag[j];
+    #pragma omp parallel num_threads(_n_threads)
+    {
+        if(_grad_type == GRADIENT_SIGNED) {
+            #pragma omp for
+            for (size_t i = 0; i < cell_mag.rows; ++i) {
+                const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
+                const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
+                for (size_t j = 0; j < cell_mag.cols; ++j) {
+                    cell_hist[static_cast<int>(ptr_row_ori[j] / _bin_width)] += ptr_row_mag[j];
+                }
             }
-        }
-    } else {
-        for (size_t i = 0; i < cell_mag.rows; ++i) {
-            const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
-            const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
-            for (size_t j = 0; j < cell_mag.cols; ++j) {
-                HOG::TType orientation = ptr_row_ori[j];
-                if(orientation > 180)
-                    orientation -= 180;
-                cell_hist[static_cast<int>(orientation / _bin_width)] += ptr_row_mag[j];
+        } else {
+            #pragma omp for
+            for (size_t i = 0; i < cell_mag.rows; ++i) {
+                const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
+                const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
+                for (size_t j = 0; j < cell_mag.cols; ++j) {
+                    HOG::TType orientation = ptr_row_ori[j];
+                    if(orientation > 180)
+                        orientation -= 180;
+                    cell_hist[static_cast<int>(orientation / _bin_width)] += ptr_row_mag[j];
+                }
             }
         }
     }
@@ -212,83 +197,58 @@ cv::Mat HOG::get_orientations() {
 
 cv::Mat HOG::get_vector_mask() {
     cv::Mat vector_mask = cv::Mat::zeros(norm.size(), CV_8U);
-
-    // retrieve the max value of the final HOG histogram
-    HOG::TType hist_max = *std::max_element(std::begin(img_hist), std::end(img_hist));
-    //HOG::TType hist_mean = std::accumulate(std::begin(img_hist), std::end(img_hist), 0.0)/img_hist.size();
-
-    // iterates over all blcoks and cells
-    size_t idx_blocks = 0;
-    size_t y, x, i, j;
-
-    for (y = 0; y <= norm.rows - _blocksize; y += _stride) {
-        for (x = 0; x <= norm.cols - _blocksize; x += _stride) {
-            size_t idx_cells = 0;
-
-            for (i = 0; i < _blocksize; i += _cellsize) {
-                for (j = 0; j < _blocksize; j += _cellsize) {
-                    // retrieves the cell histogram
-                    HOG::THist block_hist = _all_hists[idx_blocks];
-                    HOG::THist cell_hist(_binning);
-                    std::copy(  std::begin(block_hist) + idx_cells * _binning,
-                                std::begin(block_hist) + (idx_cells + 1)*_binning,
-                                std::begin(cell_hist) );
-
-                    // retrieve the max value of the this cell histogram
-                    HOG::TType max = *std::max_element(std::begin(cell_hist), std::end(cell_hist));
-                    //std::cout << "max=" << max << "\n";
-                    //HOG::TType mean = std::accumulate(std::begin(cell_hist), std::end(cell_hist), 0.0)/cell_hist.size();
-                    //std::cout << "mean=" << mean << "\n";
-
-                    int color_magnitude = static_cast<int>(max / hist_max * 255.0);
-                    //std::cout << "color_magnitude=" << color_magnitude << "\n";
-
-                    // iterates over the cell histogram
-                    for (size_t k = 0; k < cell_hist.size(); ++k) {
-                        // fixed line thinkness
-                        int thickness = 2;
-
-                        // length of the "arrows"
-                        int length = static_cast<int>((cell_hist[k] / max) * _cellsize / 2);
-
-                        if (length > 0 && !isinf(length)) {
-                            // draw "arrows" of varing length
-                            if(_grad_type == GRADIENT_SIGNED) {
-                                cv::line(vector_mask, cv::Point(x + j + _cellsize / 2, y + i + _cellsize / 2),
-                                     cv::Point(  x + j + _cellsize / 2 + cos((k * _bin_width) * 3.1415 / 180)*length,
-                                                 y + i + _cellsize / 2 + sin((k * _bin_width) * 3.1415 / 180)*length),
-                                     cv::Scalar(color_magnitude, color_magnitude, color_magnitude), thickness);
-                            } else {
-                                cv::line(vector_mask, 
-                                    cv::Point(  x + j + _cellsize / 2 + cos((k * _bin_width+180) * 3.1415 / 180)*length,
-                                                 y + i + _cellsize / 2 + sin((k * _bin_width+180) * 3.1415 / 180)*length),
-                                     cv::Point(  x + j + _cellsize / 2 + cos((k * _bin_width) * 3.1415 / 180)*length,
-                                                 y + i + _cellsize / 2 + sin((k * _bin_width) * 3.1415 / 180)*length),
-                                     cv::Scalar(color_magnitude, color_magnitude, color_magnitude), thickness);
-                            }
-                        }
-                    }
-
-                    // draw cell delimiters
-                    cv::line(vector_mask, cv::Point(x + i - 1, y + j - 1), cv::Point(x + i + norm.rows - 1, y + j - 1), cv::Scalar(255, 255, 255), 1);
-                    cv::line(vector_mask, cv::Point(x + i - 1, y + j - 1), cv::Point(x + i - 1, y + j + norm.rows - 1), cv::Scalar(255, 255, 255), 1);
-                    idx_cells++;
-                }
-
-                // draw cell delimiters
-                cv::line(vector_mask, cv::Point(x + i - 1, y + j - 1), cv::Point(x + i + norm.rows - 1, y + j - 1), cv::Scalar(255, 255, 255), 1);
-                cv::line(vector_mask, cv::Point(x + i - 1, y + j - 1), cv::Point(x + i - 1, y + j + norm.rows - 1), cv::Scalar(255, 255, 255), 1);
-            }
-
-            // draw cell delimiters
-            cv::line(vector_mask, cv::Point(x + i - 1, y + j - 1), cv::Point(x + i + norm.rows - 1, y + j - 1), cv::Scalar(255, 255, 255), 1);
-            cv::line(vector_mask, cv::Point(x + i - 1, y + j - 1), cv::Point(x + i - 1, y + j + norm.rows - 1), cv::Scalar(255, 255, 255), 1);
-            idx_blocks++;
+    
+    float max = 0;
+    
+    std::vector<std::vector<float>> cell_hist_maxs;
+    cell_hist_maxs.resize(_n_cells_y);
+    for (size_t i = 0; i < _n_cells_y; ++i) {
+        cell_hist_maxs[i].resize(_n_cells_x);
+        for (size_t j = 0; j < _n_cells_x; ++j) {
+            HOG::THist cell_hist = _cell_hists[i][j];
+            HOG::TType cell_hist_max = *std::max_element(std::begin(cell_hist), std::end(cell_hist));
+            cell_hist_maxs[i][j] = cell_hist_max;
+            if(cell_hist_max > max)
+                max = cell_hist_max;
         }
+    }
+    
+    for (size_t i = 0; i < _n_cells_y; ++i) {
+        for (size_t j = 0; j < _n_cells_x; ++j) {
+            HOG::THist cell_hist = _cell_hists[i][j];
 
-        // draw cell delimiters
-        cv::line(vector_mask, cv::Point(x - 1, y - 1), cv::Point(x + norm.rows - 1, y - 1), cv::Scalar(255, 255, 255), 1);
-        cv::line(vector_mask, cv::Point(x - 1, y - 1), cv::Point(x - 1, y + norm.rows - 1), cv::Scalar(255, 255, 255), 1);
+            int color_magnitude = static_cast<int>(cell_hist_maxs[i][j] / max * 255.0);
+            //std::cout << "color_magnitude=" << color_magnitude << "\n";
+
+            // iterates over the cell histogram
+            for (size_t k = 0; k < cell_hist.size(); ++k) {
+                // fixed line thinkness
+                int thickness = 1;
+
+                // length of the "arrows"
+                int length = static_cast<int>((cell_hist[k] / cell_hist_maxs[i][j]) * _cellsize / 2);
+
+                if (length > 0 && !isinf(length)) {
+                    // draw "arrows" of varing length
+                    if(_grad_type == GRADIENT_SIGNED) {
+                        cv::line(vector_mask, cv::Point(j*_cellsize + _cellsize / 2, i*_cellsize + _cellsize / 2),
+                             cv::Point(  j*_cellsize + _cellsize / 2 + cos((k * _bin_width) * 3.1415 / 180)*length,
+                                         i*_cellsize + _cellsize / 2 + sin((k * _bin_width) * 3.1415 / 180)*length),
+                             cv::Scalar(color_magnitude, color_magnitude, color_magnitude), thickness);
+                    } else {
+                        cv::line(vector_mask, 
+                            cv::Point(  j*_cellsize + _cellsize / 2 + cos((k * _bin_width+180) * 3.1415 / 180)*length,
+                                         i*_cellsize + _cellsize / 2 + sin((k * _bin_width+180) * 3.1415 / 180)*length),
+                             cv::Point(  j*_cellsize + _cellsize / 2 + cos((k * _bin_width) * 3.1415 / 180)*length,
+                                         i*_cellsize + _cellsize / 2 + sin((k * _bin_width) * 3.1415 / 180)*length),
+                             cv::Scalar(color_magnitude, color_magnitude, color_magnitude), thickness);
+                    }
+                }
+            }
+            // draw cell delimiters
+            cv::line(vector_mask, cv::Point(j*_cellsize, i*_cellsize), cv::Point(j*_cellsize + norm.rows, i*_cellsize), cv::Scalar(255, 255, 255), 1);
+            cv::line(vector_mask, cv::Point(j*_cellsize, i*_cellsize), cv::Point(j*_cellsize, i*_cellsize + norm.rows), cv::Scalar(255, 255, 255), 1);
+        }
     }
 
     return vector_mask;
@@ -305,5 +265,4 @@ void HOG::clear_internals() {
         h1.clear();
     }
     _cell_hists.clear();
-    
 }

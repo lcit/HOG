@@ -50,6 +50,8 @@ private:
     const std::function<void(THist&)> _block_norm;  ///< function that normalize the block histogram
     const cv::Mat _kernelx = (cv::Mat_<char>(1, 3) << -1, 0, 1); ///< derivive kernel
     const cv::Mat _kernely = (cv::Mat_<char>(3, 1) << -1, 0, 1); ///< derivive kernel
+    size_t _n_cells_y;
+    size_t _n_cells_x;
 
     cv::Mat mag, ori, norm;
     THist img_hist;

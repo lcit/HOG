@@ -60,12 +60,12 @@ int main(int argc, char* argv[]) {
         std::cout << h << ",";
 
     std::cout << "\n";
-    /*
+    
     // display some usefull images
     display_superimposed(image, hog.get_vector_mask(), "vector_mask");
     display_superimposed(custom_normalization(hog.get_magnitudes()), hog.get_vector_mask(), "magnitude");
     display_superimposed(custom_normalization(hog.get_orientations()), hog.get_vector_mask(), "orientation");
-    */
+    
     
     
     cv::waitKey();
