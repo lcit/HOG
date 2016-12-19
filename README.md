@@ -10,28 +10,29 @@ int main(int argc, char* argv[]){
     // Open an image
     cv::Mat image = cv::imread(argv[1], CV_8U);
     
-    // Retrieve the HOG from the image
+    // Set up the HOG object
 	size_t cellsize = 8;
     size_t blocksize = cellsize*2;
     size_t stride = cellsize;
     size_t binning = 9;
 	size_t n_threads = 8;
     HOG hog(blocksize, cellsize, stride, binning, HOG::GRADIENT_UNSIGNED, HOG::L2hys, n_threads);
+
+	// Process the whole image
     hog.process(image);
         
+	// Retrieve HOG from a ROI/window/sub-image
     cv::Size window(50,100);
-    
     for(int x=0; x<image.cols-window.width; x += cellsize){
          for(int y=0; y<image.rows-window.height; y += cellsize){
             cv::Rect r = cv::Rect(x,y, window.width, window.height);
             auto hist = hog.retrieve(r);
 
-			// Print resulting histogram
+			// Print resulting histograms
 			std::cout << "Histogram size: " << hist.size() << "\n";
 			for(auto h:hist)
 				std::cout << h << ",";
 			std::cout << "\n";
-
         }
     }
 }
