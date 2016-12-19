@@ -54,30 +54,32 @@ private:
     size_t _n_cells_x;
 
     cv::Mat mag, ori, norm;
-    THist img_hist;
-    std::vector<THist> _all_hists;
-
     std::vector<std::vector<THist>> _cell_hists;
-    
 
 public:
     HOG(const size_t blocksize,
         std::function<void(THist&)> block_norm = L2hys, const unsigned n_threads = 1);
-    HOG(const size_t blocksize, size_t cellsize,
+    HOG(const size_t blocksize, const size_t cellsize,
         std::function<void(THist&)> block_norm = L2hys, const unsigned n_threads = 1);
-    HOG(const size_t blocksize, size_t cellsize, size_t stride,
+    HOG(const size_t blocksize, const size_t cellsize, const size_t stride,
         std::function<void(THist&)> block_norm = L2hys, const unsigned n_threads = 1);
-    HOG(const size_t blocksize, size_t cellsize, size_t stride, size_t binning = 9, 
-        size_t grad_type = GRADIENT_UNSIGNED, std::function<void(THist&)> block_norm = L2hys, const unsigned n_threads = 1);
+    HOG(const size_t blocksize, const size_t cellsize, const size_t stride, const size_t binning = 9, 
+        const size_t grad_type = GRADIENT_UNSIGNED, std::function<void(THist&)> block_norm = L2hys, 
+        const unsigned n_threads = 1);
     ~HOG();
 
-    /// Retrieves the HOG from an image
+    /// Extracts an histogram of gradients for each cell in the image.
+    /// Then, using HOG::retrieve() one can get the HOG of an image's ROI.
     ///
     /// @param img: source image (any size)
-    /// @return the HOG histogram as std::vector
+    /// @return none
     void process(const cv::Mat& img);
     
-    THist retrieve(const cv::Rect& rect);
+    /// Retrieves the HOG from an image's ROI
+    ///
+    /// @param window: image's ROI/widnow in pixels
+    /// @return the HOG histogram as std::vector
+    THist retrieve(const cv::Rect& window);
 
 private:
     /// Retrieves magnitude and orientation form an image
@@ -87,13 +89,6 @@ private:
     /// @param pri: ref. to the orientation matrix where to store the result
     /// @return none
     void magnitude_and_orientation(const cv::Mat& img);
-
-    /// Iterates over a block and concatenates the cell histograms
-    ///
-    /// @param block_mag: a portion (block) of the magnitude matrix
-    /// @param block_ori: a portion (block) of the orientation matrix
-    /// @return the block histogram as std::vector
-    THist process_block(const cv::Mat& block_mag, const cv::Mat& block_ori);
 
     /// Iterates over a cell to create the cell histogram
     ///
@@ -122,5 +117,5 @@ public:
     /// Utility funtion to retreve a mask of vectors
     ///
     /// @return the vector matrix CV_32F
-    cv::Mat get_vector_mask();
+    cv::Mat get_vector_mask(const int thickness = 1);
 };

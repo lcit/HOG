@@ -34,12 +34,6 @@ cv::Mat custom_normalization(const cv::Mat& src) {
 
 int main(int argc, char* argv[]) {
 
-    std::vector<float> v = {1, 6, 7, 2, 2, 2, 3};
-    HOG::L2norm(v);
-
-    for (auto vv : v)
-        std::cout << vv << ",";
-
     // open and display an image
     cv::Mat image = cv::imread(argv[1], CV_8U);
     cv::imshow("original", image);
@@ -62,11 +56,9 @@ int main(int argc, char* argv[]) {
     std::cout << "\n";
     
     // display some usefull images
-    display_superimposed(image, hog.get_vector_mask(), "vector_mask");
-    display_superimposed(custom_normalization(hog.get_magnitudes()), hog.get_vector_mask(), "magnitude");
-    display_superimposed(custom_normalization(hog.get_orientations()), hog.get_vector_mask(), "orientation");
-    
-    
+    display_superimposed(image, hog.get_vector_mask(2), "vector_mask");
+    display_superimposed(custom_normalization(hog.get_magnitudes()), hog.get_vector_mask(2), "magnitude");
+    display_superimposed(custom_normalization(hog.get_orientations()), hog.get_vector_mask(2), "orientation");
     
     cv::waitKey();
 

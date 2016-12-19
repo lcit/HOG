@@ -64,25 +64,55 @@ void HOG::L2hys(HOG::THist& v) {
 
 void HOG::none(HOG::THist& v) {}
 
+void check_ctor_params(const size_t blocksize, const size_t cellsize, const size_t stride, 
+                        const size_t binning, const size_t grad_type) {
+    if(blocksize < 2)
+        throw std::runtime_error("HOG::HOG(): blocksize must be at least 2 pixels!");
+    if(cellsize < 1)
+        throw std::runtime_error("HOG::HOG(): cellsize must be at least 1 pixels!");
+    if(binning < 2)
+        throw std::runtime_error("HOG::HOG(): binning should at least be greater or equal to 2!");
+    if(grad_type != HOG::GRADIENT_UNSIGNED && grad_type != HOG::GRADIENT_SIGNED)
+        throw std::runtime_error("HOG::HOG(): grad_type entered doesn't match the default identifiers!");
+    if(blocksize%cellsize != 0)
+        throw std::runtime_error("HOG::HOG(): blocksize must be a multiple of cellsize!");
+    if(stride%cellsize != 0)
+        throw std::runtime_error("HOG::HOG(): stride must be a multiple of cellsize!");
+}
+
 HOG::HOG(const size_t blocksize, std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
     : _blocksize(blocksize), _cellsize(blocksize / 2), _stride(blocksize / 2),
       _binning(9), _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), 
-      _block_norm(block_norm), _n_threads(n_threads) {}
-HOG::HOG(const size_t blocksize, size_t cellsize,
+      _block_norm(block_norm), _n_threads(n_threads) {
+        check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
+    }
+HOG::HOG(const size_t blocksize, const size_t cellsize,
          std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(blocksize / 2), _binning(9),
-      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {}
-HOG::HOG(const size_t blocksize, size_t cellsize, size_t stride,
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {
+        check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
+    }
+HOG::HOG(const size_t blocksize, const size_t cellsize, const size_t stride,
          std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(9),
-      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {}
-HOG::HOG(const size_t blocksize, size_t cellsize, size_t stride, size_t binning, size_t grad_type,
-         std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {
+        check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
+    }
+HOG::HOG(const size_t blocksize, const size_t cellsize, const size_t stride, 
+        const size_t binning, const size_t grad_type, std::function<void(HOG::THist&)> block_norm, 
+        const unsigned n_threads)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(binning),
-      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {}
+      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {
+        check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);        
+    }
 HOG::~HOG() {}
 
 void HOG::process(const cv::Mat& img) {
+    
+    if(!img.data)
+        throw std::runtime_error("HOG::process(): invalid image!");
+    if(img.rows < _blocksize || img.cols < _blocksize)
+        throw std::runtime_error("HOG::process(): the image is smaller than blocksize!");
     
     // cleanup
     clear_internals();
@@ -117,27 +147,26 @@ void HOG::process(const cv::Mat& img) {
     }
 }
 
-HOG::THist HOG::retrieve(const cv::Rect& rect) {
-    size_t x = static_cast<int>(rect.x/_cellsize);
-    size_t y = static_cast<int>(rect.y/_cellsize);
-    size_t width = static_cast<int>(rect.width/_cellsize);
-    size_t height = static_cast<int>(rect.height/_cellsize);
-    /*
-    static_assert(y<_cell_hists.size(), "Error: Rect.y is greater than the image!");
-    static_assert(x<_cell_hists[0].size(), "Error: Rect.x is greater than the image!");
-    static_assert(width>=_n_cells_per_block_x, "Error: Rect.width is smaller than blocksize!");
-    static_assert(height>=_n_cells_per_block_y, "Error: Rect.height is smaller than blocksize!");
-    */
+HOG::THist HOG::retrieve(const cv::Rect& window) {
+    
+    if(window.height < _blocksize || window.width < _blocksize)
+        throw std::runtime_error("HOG::retrieve(): the window is smaller than blocksize!");
+    if(window.x > mag.cols-window.width || window.y > mag.rows-window.height)
+        throw std::runtime_error("HOG::retrieve(): the window goes outside of the bounds of the image!");
+    
+    // convert the window pixels into cell-units so we can iterate over 
+    // the vector of vectors of cell histograms (_cell_hists)
+    size_t x = static_cast<int>(window.x/_cellsize);
+    size_t y = static_cast<int>(window.y/_cellsize);
+    size_t width = static_cast<int>(window.width/_cellsize);
+    size_t height = static_cast<int>(window.height/_cellsize);
+
     HOG::THist hog_hist;
-    for(size_t block_y=y; block_y<y+height-_n_cells_per_block_y; block_y += _stride_unit) {
-        for(size_t block_x=x; block_x<x+width-_n_cells_per_block_x; block_x += _stride_unit) {
+    for(size_t block_y=y; block_y<=y+height-_n_cells_per_block_y; block_y += _stride_unit) {
+        for(size_t block_x=x; block_x<=x+width-_n_cells_per_block_x; block_x += _stride_unit) {
             HOG::THist block_hist;
-            //block_hist.resize(_n_cells_per_block*_binning);
             for(size_t cell_y=block_y; cell_y<block_y+_n_cells_per_block_y; ++cell_y) {
                 for(size_t cell_x=block_x; cell_x<block_x+_n_cells_per_block_x; ++cell_x) {
-                    
-                    //std::cout << "block_y=" << block_y << ", block_x=" << block_x << ", cell_y=" << cell_y << ", cell_x=" << cell_x << "\n";
-                    
                     THist cell_hist = _cell_hists[cell_y][cell_x];
                     block_hist.insert(std::end(block_hist), std::begin(cell_hist), std::end(cell_hist));
                 }
@@ -195,7 +224,7 @@ cv::Mat HOG::get_orientations() {
     return ori;
 }
 
-cv::Mat HOG::get_vector_mask() {
+cv::Mat HOG::get_vector_mask(const int thickness) {
     cv::Mat vector_mask = cv::Mat::zeros(norm.size(), CV_8U);
     
     float max = 0;
@@ -218,12 +247,9 @@ cv::Mat HOG::get_vector_mask() {
             HOG::THist cell_hist = _cell_hists[i][j];
 
             int color_magnitude = static_cast<int>(cell_hist_maxs[i][j] / max * 255.0);
-            //std::cout << "color_magnitude=" << color_magnitude << "\n";
 
             // iterates over the cell histogram
             for (size_t k = 0; k < cell_hist.size(); ++k) {
-                // fixed line thinkness
-                int thickness = 1;
 
                 // length of the "arrows"
                 int length = static_cast<int>((cell_hist[k] / cell_hist_maxs[i][j]) * _cellsize / 2);
@@ -246,8 +272,8 @@ cv::Mat HOG::get_vector_mask() {
                 }
             }
             // draw cell delimiters
-            cv::line(vector_mask, cv::Point(j*_cellsize, i*_cellsize), cv::Point(j*_cellsize + norm.rows, i*_cellsize), cv::Scalar(255, 255, 255), 1);
-            cv::line(vector_mask, cv::Point(j*_cellsize, i*_cellsize), cv::Point(j*_cellsize, i*_cellsize + norm.rows), cv::Scalar(255, 255, 255), 1);
+            cv::line(vector_mask, cv::Point(j*_cellsize-1, i*_cellsize-1), cv::Point(j*_cellsize + norm.rows-1, i*_cellsize-1), cv::Scalar(255, 255, 255), thickness);
+            cv::line(vector_mask, cv::Point(j*_cellsize-1, i*_cellsize-1), cv::Point(j*_cellsize-1, i*_cellsize + norm.rows-1), cv::Scalar(255, 255, 255), thickness);
         }
     }
 
@@ -255,10 +281,6 @@ cv::Mat HOG::get_vector_mask() {
 }
 
 void HOG::clear_internals() {
-    img_hist.clear();
-    for(auto& h:_all_hists) 
-        h.clear();
-    _all_hists.clear();
     for(auto& h1:_cell_hists) {
         for(auto& h2:h1) 
             h2.clear();
