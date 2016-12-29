@@ -1,7 +1,7 @@
 /*  ==========================================================================================
     Author: Leonardo Citraro
     Company:
-    Filename: HOG.cpp
+    Filename: HOG.hpp
     Last modifed:   28.12.2016 by Leonardo Citraro
     Description:    Straightforward (CPU based) implementation of the
                     HOG (Histogram of Oriented Gradients) using OpenCV.
