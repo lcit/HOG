@@ -2,7 +2,7 @@
     Author: Leonardo Citraro
     Company:
     Filename: test_performance.cpp
-    Last modifed:   19.12.2016 by Leonardo Citraro
+    Last modifed:   29.12.2016 by Leonardo Citraro
     Description:    Test of the HOG feature
 
     =========================================================================
@@ -54,19 +54,26 @@ int main(int argc, char* argv[]) {
         cv::Mat image = cv::imread("00001665.jpg", CV_8U);
 
         // Retrieve the HOG from the image
-        size_t cellsize = 8;
+        size_t cellsize = 5;
         size_t blocksize = cellsize*2;
         size_t stride = cellsize;
         size_t binning = 9;
-        HOG hog(blocksize, cellsize, stride, binning, HOG::GRADIENT_UNSIGNED, HOG::L2hys, n_threads);
+        HOG hog(blocksize, cellsize, stride, binning, HOG::GRADIENT_UNSIGNED, HOG::L2hys);
         hog.process(image);
         
         cv::Size window(50,100);
         
-        for(int x=0; x<image.cols-window.width; x += cellsize){
-             for(int y=0; y<image.rows-window.height; y += cellsize){
-                cv::Rect r = cv::Rect(x,y, window.width, window.height);
-                auto hist = hog.retrieve(r);
+        #pragma omp parallel num_threads(n_threads)
+        {
+            #pragma omp for collapse(2)
+            for(int x=0; x<image.cols-window.width; x += cellsize){
+                 for(int y=0; y<image.rows-window.height; y += cellsize){
+                    cv::Rect r = cv::Rect(x,y, window.width, window.height);
+                    auto hist = hog.retrieve(r);
+                    
+                    // do something with hist ...
+                    
+                }
             }
         }
     };
@@ -84,9 +91,22 @@ int main(int argc, char* argv[]) {
 
 }
 
+// Tested on an Intel quad-core hyperthreading i7-4700MQ 2.4GHz 64 bits architecture
+
 /*
-    Time elapsed (n_threads=1): 124.333(+-4.02768) [ms]
-    Time elapsed (n_threads=2): 150.333(+-0.942809) [ms]
-    Time elapsed (n_threads=4): 148.333(+-1.24722) [ms]
-    Time elapsed (n_threads=8): 264.667(+-77.933) [ms]
+ * Using HOG::none
+ * 
+    Time elapsed (n_threads=1): 407(+-18.5472) [ms]
+    Time elapsed (n_threads=2): 277.667(+-1.88562) [ms]
+    Time elapsed (n_threads=4): 164(+-5.09902) [ms]
+    Time elapsed (n_threads=8): 141(+-6.37704) [ms]
+*/
+
+/*
+ * Using HOG::L2hys
+ * 
+    Time elapsed (n_threads=1): 1088(+-4.08248) [ms]
+    Time elapsed (n_threads=2): 635.667(+-2.62467) [ms]
+    Time elapsed (n_threads=4): 382.333(+-18.8031) [ms]
+    Time elapsed (n_threads=8): 347.333(+-3.39935) [ms]
 */

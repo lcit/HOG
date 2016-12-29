@@ -40,3 +40,7 @@ add_executable(main main.cpp HOG.cpp)
 
 # Link your application with OpenCV libraries
 target_link_libraries(main ${OpenCV_LIBS})
+
+# create shared library
+#add_library(HOG SHARED HOG.cpp)
+#add_library(HOG STATIC HOG.cpp)

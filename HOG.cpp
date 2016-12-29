@@ -1,14 +1,32 @@
-/*  =========================================================================
+/*  ==========================================================================================
     Author: Leonardo Citraro
     Company:
-    Filename: HOG.cpp
-    Last modifed:   12.12.2016 by Leonardo Citraro
+    Filename: HOG.hpp
+    Last modifed:   28.12.2016 by Leonardo Citraro
     Description:    Straightforward (CPU based) implementation of the
-                    HOG (Histogram of Oriented Gradients) using OpenCV
+                    HOG (Histogram of Oriented Gradients) using OpenCV.
+                    https://lear.inrialpes.fr/people/triggs/pubs/Dalal-cvpr05.pdf
 
-    =========================================================================
-    https://lear.inrialpes.fr/people/triggs/pubs/Dalal-cvpr05.pdf
-    =========================================================================
+    ==========================================================================================
+    Copyright (c) 2016 Leonardo Citraro <ldo.citraro@gmail.com>
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy of this
+    software and associated documentation files (the "Software"), to deal in the Software
+    without restriction, including without limitation the rights to use, copy, modify,
+    merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to the following
+    conditions:
+
+    The above copyright notice and this permission notice shall be included in all copies
+    or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+    INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+    PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+    FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+    OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+    ==========================================================================================
 */
 #include "HOG.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
@@ -19,6 +37,7 @@
 #include <vector>
 #include <functional>
 #include <math.h>
+#include <iomanip>
 
 // see: https://en.wikipedia.org/wiki/Histogram_of_oriented_gradients#Block_normalization
 void HOG::L1norm(HOG::THist& v) {
@@ -80,30 +99,29 @@ void check_ctor_params(const size_t blocksize, const size_t cellsize, const size
         throw std::runtime_error("HOG::HOG(): stride must be a multiple of cellsize!");
 }
 
-HOG::HOG(const size_t blocksize, std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
+HOG::HOG(const size_t blocksize, std::function<void(HOG::THist&)> block_norm)
     : _blocksize(blocksize), _cellsize(blocksize / 2), _stride(blocksize / 2),
       _binning(9), _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), 
-      _block_norm(block_norm), _n_threads(n_threads) {
+      _block_norm(block_norm) {
         check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
     }
 HOG::HOG(const size_t blocksize, const size_t cellsize,
-         std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
+         std::function<void(HOG::THist&)> block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(blocksize / 2), _binning(9),
-      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {
         check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
     }
 HOG::HOG(const size_t blocksize, const size_t cellsize, const size_t stride,
-         std::function<void(HOG::THist&)> block_norm, const unsigned n_threads)
+         std::function<void(HOG::THist&)> block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(9),
-      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {
         check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
     }
 HOG::HOG(const size_t blocksize, const size_t cellsize, const size_t stride, 
-        const size_t binning, const size_t grad_type, std::function<void(HOG::THist&)> block_norm, 
-        const unsigned n_threads)
+        const size_t binning, const size_t grad_type, std::function<void(HOG::THist&)> block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(binning),
-      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(block_norm), _n_threads(n_threads) {
-        check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);        
+      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(block_norm) {
+        check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
     }
 HOG::~HOG() {}
 
@@ -116,38 +134,31 @@ void HOG::process(const cv::Mat& img) {
     
     // cleanup
     clear_internals();
-    
-    // makes sure the image is normalized
-    cv::normalize(img, norm, 0.0, 255.0, cv::NORM_MINMAX, CV_32F);
 
     // extracts the magnitude and orientations images
     magnitude_and_orientation(img);
     
+    _n_cells_y = static_cast<int>(mag.rows/_cellsize);
+    _n_cells_x = static_cast<int>(mag.cols/_cellsize);
+    
+    _cell_hists.resize(_n_cells_y);
+    
     // iterates over all blocks and cells
-    //#pragma omp parallel num_threads(_n_threads)
-    {
-        _n_cells_y = static_cast<int>(mag.rows/_cellsize);
-        _n_cells_x = static_cast<int>(mag.cols/_cellsize);
-        
-        //std::cout << "_n_cells_y=" << _n_cells_y << ", _n_cells_x=" << _n_cells_x << "\n";
-        
-        _cell_hists.resize(_n_cells_y);
-        
-        // There might be a bug in openmp, we can't safely fill an std::vector with fixed size
-        // http://stackoverflow.com/questions/30815669/error-with-openmp-for-nested-for-loop
-        //#pragma omp for collapse(2) 
-        for (size_t i = 0; i < _n_cells_y; ++i) {
-            _cell_hists[i].resize(_n_cells_x);
-            for (size_t j = 0; j < _n_cells_x; ++j) {
-                cv::Rect cell_rect = cv::Rect(j*_cellsize, i*_cellsize, _cellsize, _cellsize);
-                HOG::THist cell_hist = process_cell(cv::Mat(mag, cell_rect), cv::Mat(ori, cell_rect));
-                _cell_hists[i][j] = cell_hist;
-            }
+    // We tried to use OpenMP here but with scarce results. The function process_cell()
+    // doesn't consume a great deal of CPU so OpenMP struggle to spread the computation
+    // over multiple threads. The real time-consuming block of code here is the function retrieve().
+    for (size_t i = 0; i < _n_cells_y; ++i) {
+        _cell_hists[i].resize(_n_cells_x);
+        for (size_t j = 0; j < _n_cells_x; ++j) {
+            cv::Rect cell_rect = cv::Rect(j*_cellsize, i*_cellsize, _cellsize, _cellsize);
+            const HOG::THist cell_hist = process_cell(cv::Mat(mag, cell_rect), cv::Mat(ori, cell_rect));
+            _cell_hists[i][j] = cell_hist;
         }
+        
     }
 }
 
-HOG::THist HOG::retrieve(const cv::Rect& window) {
+const HOG::THist HOG::retrieve(const cv::Rect& window) {
     
     if(window.height < _blocksize || window.width < _blocksize)
         throw std::runtime_error("HOG::retrieve(): the window is smaller than blocksize!");
@@ -160,14 +171,16 @@ HOG::THist HOG::retrieve(const cv::Rect& window) {
     size_t y = static_cast<int>(window.y/_cellsize);
     size_t width = static_cast<int>(window.width/_cellsize);
     size_t height = static_cast<int>(window.height/_cellsize);
-
+    
+    // Also here we tried to use OpenMP but with scarce results.
     HOG::THist hog_hist;
     for(size_t block_y=y; block_y<=y+height-_n_cells_per_block_y; block_y += _stride_unit) {
         for(size_t block_x=x; block_x<=x+width-_n_cells_per_block_x; block_x += _stride_unit) {
             HOG::THist block_hist;
+            block_hist.reserve(_block_hist_size);
             for(size_t cell_y=block_y; cell_y<block_y+_n_cells_per_block_y; ++cell_y) {
                 for(size_t cell_x=block_x; cell_x<block_x+_n_cells_per_block_x; ++cell_x) {
-                    THist cell_hist = _cell_hists[cell_y][cell_x];
+                    const THist cell_hist = _cell_hists[cell_y][cell_x];
                     block_hist.insert(std::end(block_hist), std::begin(cell_hist), std::end(cell_hist));
                 }
             }
@@ -186,51 +199,48 @@ void HOG::magnitude_and_orientation(const cv::Mat& img) {
     cv::phase(Dx, Dy, ori, true);
 }
 
-HOG::THist HOG::process_cell(const cv::Mat& cell_mag, const cv::Mat& cell_ori) {
+const HOG::THist HOG::process_cell(const cv::Mat& cell_mag, const cv::Mat& cell_ori) {
     HOG::THist cell_hist(_binning);
-    #pragma omp parallel num_threads(_n_threads)
-    {
-        if(_grad_type == GRADIENT_SIGNED) {
-            #pragma omp for
-            for (size_t i = 0; i < cell_mag.rows; ++i) {
-                const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
-                const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
-                for (size_t j = 0; j < cell_mag.cols; ++j) {
-                    cell_hist[static_cast<int>(ptr_row_ori[j] / _bin_width)] += ptr_row_mag[j];
-                }
+    if(_grad_type == GRADIENT_SIGNED) {
+        for (size_t i = 0; i < cell_mag.rows; ++i) {
+            const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
+            const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
+            for (size_t j = 0; j < cell_mag.cols; ++j) {
+                cell_hist.at(static_cast<int>(ptr_row_ori[j] / _bin_width)) += ptr_row_mag[j];
             }
-        } else {
-            #pragma omp for
-            for (size_t i = 0; i < cell_mag.rows; ++i) {
-                const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
-                const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
-                for (size_t j = 0; j < cell_mag.cols; ++j) {
-                    HOG::TType orientation = ptr_row_ori[j];
-                    if(orientation > 180)
-                        orientation -= 180;
-                    cell_hist[static_cast<int>(orientation / _bin_width)] += ptr_row_mag[j];
-                }
+        }
+    } else {
+        for (size_t i = 0; i < cell_mag.rows; ++i) {
+            const HOG::TType* ptr_row_mag = cell_mag.ptr<HOG::TType>(i);
+            const HOG::TType* ptr_row_ori = cell_ori.ptr<HOG::TType>(i);
+            for (size_t j = 0; j < cell_mag.cols; ++j) {
+                HOG::TType orientation = ptr_row_ori[j];
+                if(orientation >= 180)
+                    orientation -= 180;
+                cell_hist.at(static_cast<int>(orientation / _bin_width)) += ptr_row_mag[j];
             }
         }
     }
     return cell_hist;
 }
 
-cv::Mat HOG::get_magnitudes() {
+const cv::Mat HOG::get_magnitudes() {
     return mag;
 }
 
-cv::Mat HOG::get_orientations() {
+const cv::Mat HOG::get_orientations() {
     return ori;
 }
 
-cv::Mat HOG::get_vector_mask(const int thickness) {
-    cv::Mat vector_mask = cv::Mat::zeros(norm.size(), CV_8U);
+const cv::Mat HOG::get_vector_mask(const int thickness) {
+    cv::Mat vector_mask = cv::Mat::zeros(mag.size(), CV_8U);
     
+    // the maximum value of all cell histogram of the image
     float max = 0;
-    
-    std::vector<std::vector<float>> cell_hist_maxs;
-    cell_hist_maxs.resize(_n_cells_y);
+
+    // iterate through all cells in the image to get the local hist max value 
+    // and the max value of the entire image
+    std::vector<std::vector<float>> cell_hist_maxs(_n_cells_y);
     for (size_t i = 0; i < _n_cells_y; ++i) {
         cell_hist_maxs[i].resize(_n_cells_x);
         for (size_t j = 0; j < _n_cells_x; ++j) {
@@ -242,10 +252,12 @@ cv::Mat HOG::get_vector_mask(const int thickness) {
         }
     }
     
+    // iterate through all cells in the image
     for (size_t i = 0; i < _n_cells_y; ++i) {
         for (size_t j = 0; j < _n_cells_x; ++j) {
             HOG::THist cell_hist = _cell_hists[i][j];
 
+            // the color of the lines depends uppon the local hist max and the overall max
             int color_magnitude = static_cast<int>(cell_hist_maxs[i][j] / max * 255.0);
 
             // iterates over the cell histogram
@@ -272,8 +284,8 @@ cv::Mat HOG::get_vector_mask(const int thickness) {
                 }
             }
             // draw cell delimiters
-            cv::line(vector_mask, cv::Point(j*_cellsize-1, i*_cellsize-1), cv::Point(j*_cellsize + norm.rows-1, i*_cellsize-1), cv::Scalar(255, 255, 255), thickness);
-            cv::line(vector_mask, cv::Point(j*_cellsize-1, i*_cellsize-1), cv::Point(j*_cellsize-1, i*_cellsize + norm.rows-1), cv::Scalar(255, 255, 255), thickness);
+            cv::line(vector_mask, cv::Point(j*_cellsize-1, i*_cellsize-1), cv::Point(j*_cellsize + mag.rows-1, i*_cellsize-1), cv::Scalar(255, 255, 255), thickness);
+            cv::line(vector_mask, cv::Point(j*_cellsize-1, i*_cellsize-1), cv::Point(j*_cellsize-1, i*_cellsize + mag.rows-1), cv::Scalar(255, 255, 255), thickness);
         }
     }
 

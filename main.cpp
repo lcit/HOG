@@ -2,8 +2,8 @@
     Author: Leonardo Citraro
     Company:
     Filename: main.cpp
-    Last modifed:   11.12.2016 by Leonardo Citraro
-    Description:    Test of the HOG feature
+    Last modifed:   29.12.2016 by Leonardo Citraro
+    Description:    Basic test of the HOG feature
 
     =========================================================================
     https://lear.inrialpes.fr/people/triggs/pubs/Dalal-cvpr05.pdf
@@ -34,7 +34,7 @@ cv::Mat custom_normalization(const cv::Mat& src) {
 
 int main(int argc, char* argv[]) {
 
-    // open and display an image
+    // open and display the image
     cv::Mat image = cv::imread(argv[1], CV_8U);
     cv::imshow("original", image);
 
@@ -52,7 +52,6 @@ int main(int argc, char* argv[]) {
 
     for (auto h : hist)
         std::cout << h << ",";
-
     std::cout << "\n";
     
     // display some usefull images
