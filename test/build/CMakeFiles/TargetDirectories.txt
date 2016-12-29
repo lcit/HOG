@@ -1,1 +1,0 @@
-/home/leo/Desktop/OpenCV_projects/HOG/test/build/CMakeFiles/main.dir
