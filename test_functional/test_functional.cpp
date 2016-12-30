@@ -20,32 +20,32 @@
 int main(int argc, char* argv[]) {
 
     try {
-        HOG hog(16, 8, 8, 9, HOG::GRADIENT_UNSIGNED, HOG::L2hys);
+        HOG hog(16, 8, 8, 9, HOG::GRADIENT_UNSIGNED, HOG::BLOCK_NORM::L2hys);
     } catch(...) {
         std::cout << "Test correct constructor failed!\n"; throw;
     }
     try {
-        HOG hog(16, 8, 8, 1, HOG::GRADIENT_UNSIGNED, HOG::L2hys);
+        HOG hog(16, 8, 8, 1, HOG::GRADIENT_UNSIGNED, HOG::BLOCK_NORM::L2hys);
         std::cout << "Test binning=1 failed!\n";  exit(-1);
     } catch(...) { }
     try {
-        HOG hog(16, 8, 7, 2, HOG::GRADIENT_UNSIGNED, HOG::L2hys);
+        HOG hog(16, 8, 7, 2, HOG::GRADIENT_UNSIGNED, HOG::BLOCK_NORM::L2hys);
         std::cout << "Test stride<cellsize failed!\n";  exit(-1);
     } catch(...) { }
     try {
-        HOG hog(12, 6, 8, 1, HOG::GRADIENT_UNSIGNED, HOG::L2hys);
+        HOG hog(12, 6, 8, 1, HOG::GRADIENT_UNSIGNED, HOG::BLOCK_NORM::L2hys);
         std::cout << "Test stride not a multiple of cellsize failed!\n";  exit(-1);
     } catch(...) { }
     try {
-        HOG hog(15, 8, 8, 1, HOG::GRADIENT_UNSIGNED, HOG::L2hys);
+        HOG hog(15, 8, 8, 1, HOG::GRADIENT_UNSIGNED, HOG::BLOCK_NORM::L2hys);
         std::cout << "Test blocksize not a multiple of cellsize failed!\n";  exit(-1);
     } catch(...) { }
     try {
-        HOG hog(16, 8, 8, 1, 4, HOG::L2hys);
+        HOG hog(16, 8, 8, 1, 4, HOG::BLOCK_NORM::L2hys);
         std::cout << "Test grad_type unknown failed!\n";  exit(-1);
     } catch(...) { }
 
-    HOG hog(16, 8, 8, 9, HOG::GRADIENT_UNSIGNED, HOG::L2hys);
+    HOG hog(16, 8, 8, 9, HOG::GRADIENT_UNSIGNED, HOG::BLOCK_NORM::L2hys);
     try {
         hog.process(cv::Mat::ones(300,200,CV_8U));
     } catch(...) {
@@ -139,7 +139,7 @@ int main(int argc, char* argv[]) {
         cv::Rect r = cv::Rect(0,0,64,64);
         cv::Mat sub = cv::Mat(image, r);
         
-        HOG hog(64, 32, 32, 9, HOG::GRADIENT_SIGNED, HOG::none);
+        HOG hog(64, 32, 32, 9, HOG::GRADIENT_SIGNED, HOG::BLOCK_NORM::none);
         
         hog.process(sub);
         auto hist1 = hog.retrieve(cv::Rect(0,0,r.width,r.height));
@@ -151,6 +151,69 @@ int main(int argc, char* argv[]) {
         for(int i=0; i<hist1.size(); ++i) {
             if((hist1[i]-hist2[i])>10) {
                 std::cout << "Test full image vs. failed!\n";  exit(-1);
+            }
+        }
+    }
+    
+    {   // Testing the copy constructor and the assignment operator
+        
+        // full image
+        cv::Mat image = cv::imread("../img/astronaut.JPG", CV_8U);
+        
+        HOG hog1(64, 32, 32, 9, HOG::GRADIENT_SIGNED, HOG::BLOCK_NORM::none);
+        HOG hog2(hog1);
+        HOG hog3 = hog1;
+        
+        hog1.process(image);
+        auto hist1 = hog1.retrieve(cv::Rect(0,0,image.cols,image.rows));
+        hog2.process(image);
+        auto hist2 = hog2.retrieve(cv::Rect(0,0,image.cols,image.rows));
+        hog3.process(image);
+        auto hist3 = hog3.retrieve(cv::Rect(0,0,image.cols,image.rows));
+        
+        // hist1 and hist2 should give the same result
+        for(int i=0; i<hist1.size(); ++i) {
+            if((hist1[i]-hist2[i])>1) {
+                std::cout << "Test copy constructor failed!\n";  exit(-1);
+            }
+        }
+        // hist1 and hist3 should give the same result
+        for(int i=0; i<hist1.size(); ++i) {
+            if((hist1[i]-hist3[i])>1) {
+                std::cout << "Test assignment operator failed!\n";  exit(-1);
+            }
+        }
+    }
+    
+    {   // Testing save and load
+        
+        // full image
+        cv::Mat image = cv::imread("../img/astronaut.JPG", CV_8U);
+        
+        HOG hog1(64, 32, 32, 9, HOG::GRADIENT_SIGNED, HOG::BLOCK_NORM::none);
+        
+        hog1.process(image);
+        auto hist1 = hog1.retrieve(cv::Rect(0,0,image.cols,image.rows));
+        
+        hog1.save("hog.ext");
+        hog1 = HOG::load("hog.ext");
+        HOG hog2 = HOG::load("hog.ext");
+        
+        hog1.process(image);
+        auto hist2 = hog1.retrieve(cv::Rect(0,0,image.cols,image.rows));
+        hog2.process(image);
+        auto hist3 = hog2.retrieve(cv::Rect(0,0,image.cols,image.rows));
+        
+        // hist1 and hist2 should give the same result
+        for(int i=0; i<hist1.size(); ++i) {
+            if((hist1[i]-hist2[i])>1) {
+                std::cout << "Test save-load1 failed!\n";  exit(-1);
+            }
+        }
+        // hist1 and hist3 should give the same result
+        for(int i=0; i<hist1.size(); ++i) {
+            if((hist1[i]-hist3[i])>1) {
+                std::cout << "Test save-load2 failed!\n";  exit(-1);
             }
         }
     }

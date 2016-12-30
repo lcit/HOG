@@ -45,6 +45,7 @@ public:
     static const size_t GRADIENT_SIGNED = 360;
     static const size_t GRADIENT_UNSIGNED = 180;
     static constexpr TType epsilon = 1e-6;
+    enum class BLOCK_NORM {none, L1norm, L1sqrt, L2norm, L2hys};
 
     // see: https://en.wikipedia.org/wiki/Histogram_of_oriented_gradients#Block_normalization
     static void L1norm(THist& v);
@@ -54,19 +55,19 @@ public:
     static void none(THist& v);
 
 private:
-    const size_t _blocksize;
-    const size_t _cellsize;
-    const size_t _stride;
-    const size_t _grad_type; ///< "signed" (0..360) or "unsigned" (0..180) gradient
-    const size_t _binning; ///< the number of bins for each cell-histogram
-    const size_t _bin_width; ///< size of one bin in degree
-    const size_t _n_cells_per_block_y = _blocksize/_cellsize;
-    const size_t _n_cells_per_block_x = _n_cells_per_block_y;
-    const size_t _n_cells_per_block = _n_cells_per_block_y*_n_cells_per_block_x;
-    const size_t _block_hist_size = _binning*_n_cells_per_block;
-    const size_t _stride_unit = _stride/_cellsize;
-    //const unsigned _n_threads;
-    const std::function<void(THist&)> _block_norm;  ///< function that normalize the block histogram
+    size_t _blocksize;
+    size_t _cellsize;
+    size_t _stride;
+    size_t _grad_type; ///< "signed" (0..360) or "unsigned" (0..180) gradient
+    size_t _binning; ///< the number of bins for each cell-histogram
+    size_t _bin_width; ///< size of one bin in degree
+    size_t _n_cells_per_block_y = _blocksize/_cellsize;
+    size_t _n_cells_per_block_x = _n_cells_per_block_y;
+    size_t _n_cells_per_block = _n_cells_per_block_y*_n_cells_per_block_x;
+    size_t _block_hist_size = _binning*_n_cells_per_block;
+    size_t _stride_unit = _stride/_cellsize;
+    BLOCK_NORM _norm_function = BLOCK_NORM::L2hys;
+    std::function<void(THist&)> _block_norm; ///< function that normalize the block histogram
     const cv::Mat _kernelx = (cv::Mat_<char>(1, 3) << -1, 0, 1); ///< derivive kernel
     const cv::Mat _kernely = (cv::Mat_<char>(3, 1) << -1, 0, 1); ///< derivive kernel
     size_t _n_cells_y;
@@ -76,15 +77,22 @@ private:
     std::vector<std::vector<THist>> _cell_hists;
 
 public:
-    HOG(const size_t blocksize,
-        std::function<void(THist&)> block_norm = L2hys);
+    HOG();
+    HOG(const size_t blocksize, 
+        const BLOCK_NORM block_norm = BLOCK_NORM::L2hys);
     HOG(const size_t blocksize, const size_t cellsize,
-        std::function<void(THist&)> block_norm = L2hys);
+        const BLOCK_NORM block_norm = BLOCK_NORM::L2hys);
     HOG(const size_t blocksize, const size_t cellsize, const size_t stride,
-        std::function<void(THist&)> block_norm = L2hys);
+        const BLOCK_NORM block_norm = BLOCK_NORM::L2hys);
     HOG(const size_t blocksize, const size_t cellsize, const size_t stride, const size_t binning = 9, 
-        const size_t grad_type = GRADIENT_UNSIGNED, std::function<void(THist&)> block_norm = L2hys);
+        const size_t grad_type = GRADIENT_UNSIGNED, const BLOCK_NORM block_norm = BLOCK_NORM::L2hys);
     ~HOG();
+    
+    // Copy constructor
+    HOG(const HOG& to_copy);
+    
+    // assignment operator
+    HOG& operator=(const HOG& to_copy);
 
     /// Extracts an histogram of gradients for each cell in the image.
     /// Then, using HOG::retrieve() one can get the HOG of an image's ROI.
@@ -136,4 +144,14 @@ public:
     ///
     /// @return the vector matrix CV_32F
     const cv::Mat get_vector_mask(const int thickness = 1);
+    
+    /// Save the HOG object
+    /// @param filename: name of the file where to store the object
+    /// @return none
+    void save(const std::string& filename);
+    
+    /// Load the HOG object
+    /// @param filename: name of the file where to retrieve the object
+    /// @return HOG object
+    static HOG load(const std::string& filename);
 };

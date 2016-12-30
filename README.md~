@@ -23,10 +23,6 @@ int main(int argc, char* argv[]){
     size_t binning = 9;
     HOG hog(blocksize, cellsize, stride, binning, HOG::GRADIENT_UNSIGNED, HOG::L2hys);
 
-	// example how to save and load a HOG model
-	hog.save("hog.ext");
-	hog = HOG::load("hog.ext");
-
 	// Process the whole image
     hog.process(image);
         

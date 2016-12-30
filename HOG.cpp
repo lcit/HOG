@@ -38,6 +38,7 @@
 #include <functional>
 #include <math.h>
 #include <iomanip>
+#include <fstream>
 
 // see: https://en.wikipedia.org/wiki/Histogram_of_oriented_gradients#Block_normalization
 void HOG::L1norm(HOG::THist& v) {
@@ -83,6 +84,21 @@ void HOG::L2hys(HOG::THist& v) {
 
 void HOG::none(HOG::THist& v) {}
 
+std::function<void(HOG::THist&)> get_block_norm(const HOG::BLOCK_NORM norm) {
+    if(norm == HOG::BLOCK_NORM::none)
+        return HOG::none;
+    else if (norm == HOG::BLOCK_NORM::L1norm)
+        return HOG::L1norm;
+    else if (norm == HOG::BLOCK_NORM::L1sqrt)
+        return HOG::L1sqrt;
+    else if (norm == HOG::BLOCK_NORM::L2norm)
+        return HOG::L2norm;
+    else if (norm == HOG::BLOCK_NORM::L2hys)
+        return HOG::L2hys;
+    else
+        return HOG::none;
+}
+
 void check_ctor_params(const size_t blocksize, const size_t cellsize, const size_t stride, 
                         const size_t binning, const size_t grad_type) {
     if(blocksize < 2)
@@ -99,31 +115,64 @@ void check_ctor_params(const size_t blocksize, const size_t cellsize, const size
         throw std::runtime_error("HOG::HOG(): stride must be a multiple of cellsize!");
 }
 
-HOG::HOG(const size_t blocksize, std::function<void(HOG::THist&)> block_norm)
+HOG::HOG()
+    : _blocksize(16), _cellsize(8), _stride(8), _binning(9), _grad_type(GRADIENT_UNSIGNED), 
+      _bin_width(_grad_type / _binning), _block_norm(HOG::none), _norm_function(HOG::BLOCK_NORM::none){
+        check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
+    }
+HOG::HOG(const size_t blocksize, const HOG::BLOCK_NORM block_norm)
     : _blocksize(blocksize), _cellsize(blocksize / 2), _stride(blocksize / 2),
       _binning(9), _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), 
-      _block_norm(block_norm) {
+      _block_norm(get_block_norm(block_norm)), _norm_function(block_norm) {
         check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
     }
 HOG::HOG(const size_t blocksize, const size_t cellsize,
-         std::function<void(HOG::THist&)> block_norm)
+         const HOG::BLOCK_NORM block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(blocksize / 2), _binning(9),
-      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(get_block_norm(block_norm)),
+      _norm_function(block_norm) {
         check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
     }
 HOG::HOG(const size_t blocksize, const size_t cellsize, const size_t stride,
-         std::function<void(HOG::THist&)> block_norm)
+         const HOG::BLOCK_NORM block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(9),
-      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(block_norm) {
+      _grad_type(GRADIENT_UNSIGNED), _bin_width(_grad_type / _binning), _block_norm(get_block_norm(block_norm)),
+      _norm_function(block_norm) {
         check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
     }
 HOG::HOG(const size_t blocksize, const size_t cellsize, const size_t stride, 
-        const size_t binning, const size_t grad_type, std::function<void(HOG::THist&)> block_norm)
+        const size_t binning, const size_t grad_type, const HOG::BLOCK_NORM block_norm)
     : _blocksize(blocksize), _cellsize(cellsize), _stride(stride), _binning(binning),
-      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(block_norm) {
+      _grad_type(grad_type), _bin_width(_grad_type / _binning), _block_norm(get_block_norm(block_norm)), 
+      _norm_function(block_norm) {
         check_ctor_params(_blocksize, _cellsize, _stride, _binning, _grad_type);
     }
 HOG::~HOG() {}
+
+// Copy constructor
+HOG::HOG(const HOG& to_copy) 
+    : _blocksize(to_copy._blocksize), _cellsize(to_copy._cellsize), _stride(to_copy._stride), _binning(to_copy._binning),
+      _grad_type(to_copy._grad_type), _bin_width(_grad_type / _binning), _block_norm(to_copy._block_norm),
+      _norm_function(to_copy._norm_function) {
+    }
+    
+// assignment operator
+HOG& HOG::operator=(const HOG& to_copy) {
+    _blocksize = to_copy._blocksize;
+    _cellsize = to_copy._cellsize;
+    _stride = to_copy._stride;
+    _binning = to_copy._binning;
+    _grad_type = to_copy._grad_type;
+    _bin_width = to_copy._bin_width;
+    _norm_function = to_copy._norm_function;
+    _block_norm = to_copy._block_norm;
+    _n_cells_per_block_y = _blocksize/_cellsize;
+    _n_cells_per_block_x = _n_cells_per_block_y;
+    _n_cells_per_block = _n_cells_per_block_y*_n_cells_per_block_x;
+    _block_hist_size = _binning*_n_cells_per_block;
+    _stride_unit = _stride/_cellsize;
+    return *this;
+}
 
 void HOG::process(const cv::Mat& img) {
     
@@ -299,4 +348,45 @@ void HOG::clear_internals() {
         h1.clear();
     }
     _cell_hists.clear();
+}
+
+void HOG::save(const std::string& filename) {
+    try {
+        std::ofstream f(filename, std::ios::binary);
+        f.write( (char*)&_blocksize, sizeof(_blocksize) );
+        f.write( (char*)&_cellsize, sizeof(_cellsize) );
+        f.write( (char*)&_stride, sizeof(_stride) );
+        f.write( (char*)&_binning, sizeof(_binning) );
+        f.write( (char*)&_grad_type, sizeof(_grad_type) );
+        f.write( (char*)&_bin_width, sizeof(_bin_width) );
+        f.write( (char*)&_norm_function, sizeof(_norm_function) );
+        f.close();
+    } catch(...) {
+        throw;
+    }
+}
+
+HOG HOG::load(const std::string& filename) {
+    
+    size_t blocksize;
+    size_t cellsize;
+    size_t stride;
+    size_t grad_type;
+    size_t binning;
+    BLOCK_NORM norm_function;
+    
+    try {
+        std::ifstream f(filename, std::ios::binary);
+        f.read( (char*)&blocksize, sizeof(blocksize) );
+        f.read( (char*)&cellsize, sizeof(cellsize) );
+        f.read( (char*)&stride, sizeof(stride) );
+        f.read( (char*)&binning, sizeof(binning) );
+        f.read( (char*)&grad_type, sizeof(grad_type) );
+        f.read( (char*)&norm_function, sizeof(norm_function) );
+        f.close();
+        
+        return HOG(blocksize, cellsize, stride, binning, grad_type, norm_function);
+    } catch(...) {
+        throw;
+    }
 }
