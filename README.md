@@ -6,7 +6,13 @@ The reference article: https://lear.inrialpes.fr/people/triggs/pubs/Dalal-cvpr05
 
 ### Prerequisites
 
-OpenCV 3.1.0+
+OpenCV 3
+
+### Run example
+```
+./clean.sh; ./build.sh
+./run_person.sh
+```
 
 ### Example usage
 

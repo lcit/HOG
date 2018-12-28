@@ -31,6 +31,7 @@
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/highgui/highgui.hpp"
 #include <iostream>
+#include <numeric>
 #include <algorithm>
 #include <memory>
 #include <vector>
@@ -41,7 +42,7 @@ class HOG {
 public:
     using TType = float;
     using THist = std::vector<TType>;
-    
+
     static const size_t GRADIENT_SIGNED = 360;
     static const size_t GRADIENT_UNSIGNED = 180;
     static constexpr TType epsilon = 1e-6;
@@ -78,19 +79,19 @@ private:
 
 public:
     HOG();
-    HOG(const size_t blocksize, 
+    HOG(const size_t blocksize,
         const BLOCK_NORM block_norm = BLOCK_NORM::L2hys);
     HOG(const size_t blocksize, const size_t cellsize,
         const BLOCK_NORM block_norm = BLOCK_NORM::L2hys);
     HOG(const size_t blocksize, const size_t cellsize, const size_t stride,
         const BLOCK_NORM block_norm = BLOCK_NORM::L2hys);
-    HOG(const size_t blocksize, const size_t cellsize, const size_t stride, const size_t binning = 9, 
+    HOG(const size_t blocksize, const size_t cellsize, const size_t stride, const size_t binning = 9,
         const size_t grad_type = GRADIENT_UNSIGNED, const BLOCK_NORM block_norm = BLOCK_NORM::L2hys);
     ~HOG();
-    
+
     // Copy constructor
     HOG(const HOG& to_copy);
-    
+
     // assignment operator
     HOG& operator=(const HOG& to_copy);
 
@@ -100,7 +101,7 @@ public:
     /// @param img: source image (any size)
     /// @return none
     void process(const cv::Mat& img);
-    
+
     /// Retrieves the HOG from an image's ROI
     ///
     /// @param window: image's ROI/widnow in pixels
@@ -122,7 +123,7 @@ private:
     /// @param cell_ori: a portion of a block (cell) of the orientation matrix
     /// @return the cell histogram as std::vector
     const THist process_cell(const cv::Mat& cell_mag, const cv::Mat& cell_ori);
-    
+
     /// Clear internal/local data
     ///
     /// @param none
@@ -144,12 +145,12 @@ public:
     ///
     /// @return the vector matrix CV_32F
     const cv::Mat get_vector_mask(const int thickness = 1);
-    
+
     /// Save the HOG object
     /// @param filename: name of the file where to store the object
     /// @return none
     void save(const std::string& filename);
-    
+
     /// Load the HOG object
     /// @param filename: name of the file where to retrieve the object
     /// @return HOG object

@@ -1,14 +1,9 @@
-# cmake needs this line
 cmake_minimum_required(VERSION 2.8)
 
-# Define project name
 project(HOG_project)
 
-#add_definitions( -fopenmp -O2)
 SET(GCC_COVERAGE_COMPILE_FLAGS "-std=c++14 -O2")
-#SET(GCC_COVERAGE_LINK_FLAGS    "-fopenmp")
 SET( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
-#SET( CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_COVERAGE_LINK_FLAGS}" )
 
 FIND_PACKAGE(OpenMP)
 IF(OPENMP_FOUND)
